@@ -50,3 +50,19 @@ class GameEngine:
                 if cell == "":
                     return False
         return self.check_winner() is None
+
+    def get_empty_cells(self):
+        """Returns a list of (row, col) empty positions."""
+        empty = []
+        for r in range(3):
+            for c in range(3):
+                if self.board[r][c] == "":
+                    empty.append((r, c))
+        return empty
+
+    def clone(self):
+        """Returns a deep copy of the engine state."""
+        new_engine = GameEngine()
+        new_engine.current_player = self.current_player
+        new_engine.board = [row[:] for row in self.board]
+        return new_engine

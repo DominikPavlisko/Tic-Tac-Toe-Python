@@ -5,10 +5,10 @@ import tkinter as tk
 from tkinter import messagebox
 
 from GameEngine import GameEngine
+from AIEngine import AIEngine
 
 HOST = "127.0.0.1"
 PORT = 5000
-
 
 
 def send_json(conn, data: dict):
@@ -41,7 +41,25 @@ def try_connect_once(host, port, timeout=0.5):
 
 
 def run_server(host=HOST, port=PORT):
+    """
+    Server loop with mode selection:
+      - PvP: wait for 2 human clients (X and O)
+      - PvAI: wait for 1 human client (X), server runs AI as O
+    """
     engine = GameEngine()
+
+    print("Odaberi način igre:")
+    print("1 — PvP (dva igrača preko mreže)")
+    print("2 — PvAI (jedan igrač protiv računala)")
+    mode = input("Unos (1/2): ").strip()
+    ai_enabled = (mode == "2")
+
+    ai = AIEngine() if ai_enabled else None
+    if ai_enabled:
+        print("[SERVER] Pokrećem PvAI način (čovjek = X, AI = O).")
+    else:
+        print("[SERVER] Pokrećem PvP način (X i O su ljudi).")
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, port))
         s.listen(2)
@@ -51,9 +69,15 @@ def run_server(host=HOST, port=PORT):
         print(f"[SERVER] Spojio se X: {addr_x}")
         send_json(conn_x, {"type": "role", "mark": "X"})
 
-        conn_o, addr_o = s.accept()
-        print(f"[SERVER] Spojio se O: {addr_o}")
-        send_json(conn_o, {"type": "role", "mark": "O"})
+        conn_o = None
+        addr_o = None
+
+        if ai_enabled:
+            print("[SERVER] Koristim AI kao igrača O.")
+        else:
+            conn_o, addr_o = s.accept()
+            print(f"[SERVER] Spojio se O: {addr_o}")
+            send_json(conn_o, {"type": "role", "mark": "O"})
 
         players = {"X": conn_x, "O": conn_o}
 
@@ -65,52 +89,98 @@ def run_server(host=HOST, port=PORT):
             }
             if extra:
                 state.update(extra)
-            send_json(conn_x, state)
-            send_json(conn_o, state)
+
+            try:
+                send_json(conn_x, state)
+            except OSError:
+                pass
+
+            if conn_o:
+                try:
+                    send_json(conn_o, state)
+                except OSError:
+                    pass
 
         broadcast_state()
 
         while True:
             current = engine.current_player
-            conn = players[current]
 
-            send_json(conn, {"type": "your_turn"})
+            if current == "X" or (current == "O" and not ai_enabled):
+                conn = players[current]
+                if conn is None:
+                    print("[SERVER] Očekivana konekcija nije dostupna. Kraj servera.")
+                    break
 
-            line = recv_line(conn)
-            if line is None:
-                print("[SERVER] Igrač se odspojio. Kraj servera.")
-                break
+                try:
+                    send_json(conn, {"type": "your_turn"})
+                except OSError:
+                    print("[SERVER] Ne mogu poslati 'your_turn' — veza prekinuta.")
+                    break
 
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                print("[SERVER] Neispravan JSON.")
-                continue
+                line = recv_line(conn)
+                if line is None:
+                    print("[SERVER] Igrač se odspojio. Kraj servera.")
+                    break
 
-            if msg.get("type") != "move":
-                print("[SERVER] Očekivan 'move'.")
-                continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    print("[SERVER] Neispravan JSON.")
+                    continue
 
-            row = msg.get("row")
-            col = msg.get("col")
-            if row is None or col is None:
-                continue
+                if msg.get("type") != "move":
+                    print("[SERVER] Očekivan 'move'.")
+                    continue
 
-            result = engine.play_move(int(row), int(col))
+                row = msg.get("row")
+                col = msg.get("col")
+                if row is None or col is None:
+                    continue
 
-            if not result["valid"]:
-                send_json(conn, {"type": "error", "message": "Polje je već zauzeto."})
-                continue
+                try:
+                    result = engine.play_move(int(row), int(col))
+                except Exception as e:
+                    print(f"[SERVER] Greška pri play_move: {e}")
+                    send_json(conn, {"type": "error", "message": "Server error."})
+                    continue
+
+                if not result["valid"]:
+                    send_json(conn, {"type": "error", "message": "Polje je već zauzeto."})
+                    continue
+
+            else:
+                try:
+                    best = ai.get_best_move(engine)
+                except Exception as e:
+                    print(f"[SERVER] AI iznimka: {e}")
+                    break
+
+                if best is None:
+                    print("[SERVER] AI nema poteza.")
+                    break
+
+                row, col = best
+                print(f"[SERVER] AI odigrao: ({row}, {col})")
+                result = engine.play_move(row, col)
 
             extra = {"winner": result["winner"], "draw": result["draw"]}
             broadcast_state(extra)
 
             if result["winner"] or result["draw"]:
-                print("[SERVER] Igra gotova, gasim server.")
+                print("[SERVER] Igra gotova.")
                 break
 
-        conn_x.close()
-        conn_o.close()
+        try:
+            conn_x.close()
+        except Exception:
+            pass
+        if conn_o:
+            try:
+                conn_o.close()
+            except Exception:
+                pass
+
         print("[SERVER] Server završio.")
 
 
