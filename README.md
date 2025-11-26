@@ -3,7 +3,6 @@
 A sophisticated Python implementation of Tic-Tac-Toe featuring an unbeatable AI powered by the Minimax algorithm, with support for both local and network-based multiplayer gameplay. Built with clean, modular code architecture and an intuitive GUI interface.
 
 [![Python](https://img.shields.io/badge/Python-3.x-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
@@ -199,7 +198,7 @@ Contributions are welcome! Feel free to:
 
 ## 📝 License
 
-This project is open source and available under the [MIT License](LICENSE).
+This project is open source. Please check with the repository owner for licensing details.
 
 ---
 
