@@ -171,40 +171,13 @@ The application uses a simple JSON-based protocol over TCP sockets:
 - Type hints in function signatures
 - Comprehensive docstrings
 
-### Testing
-
-Test the game components:
-
-```bash
-# Test the game engine
-python3 -c "from GameEngine import GameEngine; e = GameEngine(); print('GameEngine OK')"
-
-# Test the AI engine
-python3 -c "from AIEngine import AIEngine; ai = AIEngine(); print('AIEngine OK')"
-```
 
 ---
 
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to:
-
-- Report bugs
-- Suggest new features
-- Submit pull requests
-- Improve documentation
-
----
-
-## 📝 License
-
-This project is open source. Please check with the repository owner for licensing details.
-
----
-
-## 👨‍💻 Author
+## 👨‍💻 Authors
 
 **Dominik Pavlisko**
+**Matija Aleksić**
 
 ---
 
