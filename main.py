@@ -40,38 +40,31 @@ def try_connect_once(host, port, timeout=0.5):
         return None
 
 
-def run_server(host=HOST, port=PORT):
+def run_server(host, port, ai_enabled=False):
     """
-    Server loop with mode selection:
-      - PvP: wait for 2 human clients (X and O)
-      - PvAI: wait for 1 human client (X), server runs AI as O
+    PvP: čeka 2 klijenta (X i O)
+    PvAI: čeka 1 klijenta (X), AI igra kao O
     """
     engine = GameEngine()
-
-    print("Odaberi način igre:")
-    print("1 — PvP (dva igrača preko mreže)")
-    print("2 — PvAI (jedan igrač protiv računala)")
-    mode = input("Unos (1/2): ").strip()
-    ai_enabled = (mode == "2")
-
     ai = AIEngine() if ai_enabled else None
+
     if ai_enabled:
-        print("[SERVER] Pokrećem PvAI način (čovjek = X, AI = O).")
+        print("[SERVER] PvAI (čovjek = X, AI = O).")
     else:
-        print("[SERVER] Pokrećem PvP način (X i O su ljudi).")
+        print("[SERVER] PvP (X i O su ljudi).")
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((host, port))
         s.listen(2)
         print(f"[SERVER] Čekam igrače na {host}:{port}...")
 
+        # X se spaja prvi
         conn_x, addr_x = s.accept()
         print(f"[SERVER] Spojio se X: {addr_x}")
         send_json(conn_x, {"type": "role", "mark": "X"})
 
         conn_o = None
-        addr_o = None
-
         if ai_enabled:
             print("[SERVER] Koristim AI kao igrača O.")
         else:
@@ -100,7 +93,6 @@ def run_server(host=HOST, port=PORT):
                     send_json(conn_o, state)
                 except OSError:
                     pass
-
         broadcast_state()
 
         while True:
@@ -142,11 +134,17 @@ def run_server(host=HOST, port=PORT):
                     result = engine.play_move(int(row), int(col))
                 except Exception as e:
                     print(f"[SERVER] Greška pri play_move: {e}")
-                    send_json(conn, {"type": "error", "message": "Server error."})
+                    try:
+                        send_json(conn, {"type": "error", "message": "Server error."})
+                    except Exception:
+                        pass
                     continue
 
                 if not result["valid"]:
-                    send_json(conn, {"type": "error", "message": "Polje je već zauzeto."})
+                    try:
+                        send_json(conn, {"type": "error", "message": "Polje je već zauzeto."})
+                    except Exception:
+                        pass
                     continue
 
             else:
@@ -199,19 +197,12 @@ class TicTacToeNetworkGUI:
         self.current_player = None
         self.is_my_turn = False
 
-        self.status_label = tk.Label(
-            self.root, text="Spajanje...", font=("Arial", 14)
-        )
+        self.status_label = tk.Label(self.root, text="Spajanje...", font=("Arial", 14))
         self.status_label.grid(row=0, column=0, columnspan=3, pady=(10, 10))
 
         self._create_board()
 
-        self.exit_btn = tk.Button(
-            self.root,
-            text="Izađi",
-            font=("Arial", 12),
-            command=self.on_close
-        )
+        self.exit_btn = tk.Button(self.root, text="Izađi", font=("Arial", 12), command=self.on_close)
         self.exit_btn.grid(row=4, column=0, columnspan=3, pady=(10, 10))
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -230,7 +221,7 @@ class TicTacToeNetworkGUI:
                     width=6,
                     height=3,
                     font=("Arial", 20),
-                    command=lambda row=r, col=c: self.on_cell_click(row, col)
+                    command=lambda row=r, col=c: self.on_cell_click(row, col),
                 )
                 btn.grid(row=r + 1, column=c, padx=5, pady=5)
                 self.buttons[r][c] = btn
@@ -263,9 +254,7 @@ class TicTacToeNetworkGUI:
         if mtype == "role":
             self.my_mark = msg.get("mark")
             self.root.title(f"Tic-Tac-Toe LAN – Igrač {self.my_mark}")
-            self.status_label.config(
-                text=f"Ti si igrač {self.my_mark}. Čekam početak igre..."
-            )
+            self.status_label.config(text=f"Ti si igrač {self.my_mark}. Čekam početak igre...")
 
         elif mtype == "state":
             self.board = msg.get("board", self.board)
@@ -279,25 +268,22 @@ class TicTacToeNetworkGUI:
                 self.status_label.config(text=f"Pobijedio je {winner}")
                 messagebox.showinfo("Kraj igre", f"Pobijedio je {winner}")
                 self.disable_board()
+                self.is_my_turn = False
             elif draw:
                 self.status_label.config(text="Neriješeno")
                 messagebox.showinfo("Kraj igre", "Neriješeno!")
                 self.disable_board()
+                self.is_my_turn = False
             else:
-                self.status_label.config(
-                    text=f"Igrač na potezu: {self.current_player}"
-                )
+                self.status_label.config(text=f"Igrač na potezu: {self.current_player}")
 
         elif mtype == "your_turn":
-            if self.current_player == self.my_mark:
-                self.is_my_turn = True
-                self.enable_board()
-                self.status_label.config(
-                    text=f"Tvoj potez ({self.my_mark})"
-                )
+            self.is_my_turn = True
+            self.enable_board()
+            if self.my_mark:
+                self.status_label.config(text=f"Tvoj potez ({self.my_mark})")
             else:
-                self.is_my_turn = False
-                self.disable_board()
+                self.status_label.config(text="Tvoj potez")
 
         elif mtype == "error":
             err_msg = msg.get("message", "Nepoznata greška.")
@@ -306,8 +292,7 @@ class TicTacToeNetworkGUI:
     def update_board_view(self):
         for r in range(3):
             for c in range(3):
-                value = self.board[r][c]
-                self.buttons[r][c].config(text=value)
+                self.buttons[r][c].config(text=self.board[r][c])
 
     def disable_board(self):
         for row in self.buttons:
@@ -322,17 +307,16 @@ class TicTacToeNetworkGUI:
     def on_cell_click(self, row: int, col: int):
         if not self.is_my_turn:
             return
-
         if self.board[row][col] != "":
             return
 
         move_msg = {"type": "move", "row": row, "col": col}
         try:
-            text = json.dumps(move_msg) + "\n"
-            self.sock.sendall(text.encode("utf-8"))
+            self.sock.sendall((json.dumps(move_msg) + "\n").encode("utf-8"))
         except OSError:
             messagebox.showerror("Greška", "Veza sa serverom je prekinuta.")
             self.disable_board()
+            self.is_my_turn = False
             return
 
         self.is_my_turn = False
@@ -351,24 +335,69 @@ class TicTacToeNetworkGUI:
 
 
 def main():
-    sock = try_connect_once(HOST, PORT)
-    if sock:
-        print("[APP] Pronađen server, spajam se kao klijent.")
+    print("Odaberi način igre:")
+    print("1 — PvP (2 igrača)")
+    print("2 — PvAI")
+    mode = input("Unos (1/2): ").strip()
+
+    if mode == "1":
+        print("PvP odabir:")
+        print("1 — Host (pokreni server)")
+        print("2 — Join (spoji se na server)")
+        choice = input("Unos (1/2): ").strip()
+
+        if choice == "1":
+            # HOST
+            host_bind = "0.0.0.0"
+            print(f"[APP] Hostam igru na {host_bind}:{PORT}")
+            print("➡️  Daj drugom igraču svoj LAN IP (npr. 192.168.1.50) i port:", PORT)
+
+            server_thread = threading.Thread(
+                target=run_server, args=(host_bind, PORT, False), daemon=True
+            )
+            server_thread.start()
+
+            # Host se spaja kao klijent preko localhost
+            sock = None
+            while sock is None:
+                sock = try_connect_once("127.0.0.1", PORT)
+
+            print("[APP] Spojen kao HOST (X).")
+            app = TicTacToeNetworkGUI(sock)
+            app.run()
+            return
+
+        elif choice == "2":
+            # JOIN
+            ip = input("Unesi IP adresu hosta (npr. 192.168.1.50): ").strip()
+
+            sock = try_connect_once(ip, PORT, timeout=3.0)
+            if not sock:
+                print("[APP] Ne mogu se spojiti. Provjeri IP/port i firewall.")
+                return
+
+            print("[APP] Spojen kao JOIN (O).")
+            app = TicTacToeNetworkGUI(sock)
+            app.run()
+            return
+
+        else:
+            print("Neispravan odabir.")
+            return
+
+    else:
+        print("[APP] Pokrećem PvAI...")
+        server_thread = threading.Thread(
+            target=run_server, args=("127.0.0.1", PORT, True), daemon=True
+        )
+        server_thread.start()
+
+        sock = None
+        while sock is None:
+            sock = try_connect_once("127.0.0.1", PORT)
+
         app = TicTacToeNetworkGUI(sock)
         app.run()
-        return
-
-    print("[APP] Nema servera, pokrećem server u pozadini...")
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-
-    sock = None
-    while sock is None:
-        sock = try_connect_once(HOST, PORT)
-
-    print("[APP] Spojen na vlastiti server kao prvi klijent.")
-    app = TicTacToeNetworkGUI(sock)
-    app.run()
 
 
 if __name__ == "__main__":
